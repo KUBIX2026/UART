@@ -1,6 +1,6 @@
 # UART: puntajes en la pantalla M5Stack
 
-Proyecto PBL *Videojuego en FPGA* (Diseño Digital 1). Equipo UART.
+Proyecto *Videojuego* (Electronica Digital 1). Equipo UART.
 
 ## 1. Protocolo de comunicaciòn UART
 ### ¿Què es el UART?
