@@ -403,7 +403,8 @@ DISPLAY_DRV
 rows[7:0] / cols[7:0]
 ```
 
-Además del camino principal de datos, la arquitectura incorpora bloques de temporización y control, tales como el generador de pulsos de muestreo UART, el contador de filas, el comparador de última fila y una unidad de control.
+Además del camino principal de datos, la arquitectura incorpora bloques de temporización y control, tales como el generador de pulsos de muestreo UART, el contador de filas, el comparador de última fila y una unidad de control.<img width="1086" height="1448" alt="Diagrama de flujo UART para pantalla 8x8" src="https://github.com/user-attachments/assets/b1a459a1-07ba-4485-9bee-deb09b60100c" />
+
 
 Esta primera versión busca mostrar de manera explícita las señales internas y la relación entre los diferentes módulos antes de realizar posteriores simplificaciones u optimizaciones de la arquitectura.<img width="1672" height="941" alt="Diagrama técnico del sistema UART y pantalla 8x8" src="https://github.com/user-attachments/assets/f7d19927-4e9c-4e20-89ac-bc7b0247728f" />
 
