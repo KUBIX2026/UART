@@ -364,3 +364,7 @@ Todos con `Index = 01`, salvo los de la cadena.
 | Borrar la pantalla | `AA 55 03 00 01 E4 E5 55 AA` |
 | Heartbeat | `AA 55 03 00 FF FD FC 55 AA` |
 | Contar pantallas | `AA 55 04 00 FF FE 00 FD 55 AA` |
+
+## 3. Diagrama de flujo alto nivel
+En el siguiente diagrama se puede apreciar el funcionamiento del protocolo, comò serìa el proceso en el què se envìa el puntaje a la pantalla.
+
