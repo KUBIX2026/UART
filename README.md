@@ -1032,4 +1032,5 @@ El recorrido completo del carácter `A`, incluyendo:
 
 se encuentra desarrollado en:
 
-[**Ejemplo_CajaNegra_UART.pdf**](docs/Ejemplo_CajaNegra_UART.pdf)
+[Ejemplo_CajaNegra_UART.pdf](https://github.com/user-attachments/files/33363034/Ejemplo_CajaNegra_UART.pdf)
+
