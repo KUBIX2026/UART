@@ -373,4 +373,661 @@ En el siguiente diagrama se puede apreciar el funcionamiento del protocolo, com�
 [Diagrama de flujo alto nivel.drawio.pdf](https://github.com/user-attachments/files/33361124/Diagrama.de.flujo.alto.nivel.drawio.pdf)
 
 
+## Arquitectura bajo nivel - Versión 1
 
+### Descripción general
+
+La arquitectura de bajo nivel propuesta corresponde a un sistema de visualización que recibe información mediante comunicación UART y la transforma progresivamente hasta obtener las señales necesarias para controlar una matriz LED de 8×8.
+
+El sistema se plantea de forma modular. La información ingresa de manera serial a través de la señal `rx`; posteriormente, el receptor UART reconstruye el byte recibido, este se almacena temporalmente y luego se utiliza como código de entrada para una memoria de caracteres. A partir del carácter almacenado y de la fila que se encuentre activa, el sistema obtiene el patrón gráfico correspondiente y genera finalmente las señales `rows[7:0]` y `cols[7:0]`, encargadas de controlar físicamente la matriz.
+
+De manera general, el recorrido principal de la información es:
+
+```text
+rx
+ ↓
+UART_RX
+ ↓
+DOUT[7:0]
+ ↓
+CHAR_BUF
+ ↓
+CHAR_CODE[7:0]
+ ↓
+FONT_ROM
+ ↓
+GLYPH[7:0]
+ ↓
+DISPLAY_DRV
+ ↓
+rows[7:0] / cols[7:0]
+```
+
+Además del camino principal de datos, la arquitectura incorpora bloques de temporización y control, tales como el generador de pulsos de muestreo UART, el contador de filas, el comparador de última fila y una unidad de control.
+
+Esta primera versión busca mostrar de manera explícita las señales internas y la relación entre los diferentes módulos antes de realizar posteriores simplificaciones u optimizaciones de la arquitectura.<img width="1672" height="941" alt="Diagrama técnico del sistema UART y pantalla 8x8" src="https://github.com/user-attachments/assets/f7d19927-4e9c-4e20-89ac-bc7b0247728f" />
+
+
+
+*Figura. Arquitectura de bajo nivel - Versión 1 del sistema de visualización mediante UART y matriz LED de 8×8.*
+
+---
+
+### Componentes
+
+La arquitectura está formada por varios módulos especializados. Cada módulo realiza una función concreta dentro del proceso que transforma la información recibida por UART en un patrón visible sobre la matriz LED.
+
+#### `baud_gen` — Generador de tasa de muestreo
+
+El módulo `baud_gen` utiliza el reloj principal del sistema (`clk`) para generar la señal `s_tick`.
+
+Esta señal proporciona la referencia temporal que utiliza el receptor UART para realizar el muestreo de la línea `rx`.
+
+Debido a que UART es un protocolo asíncrono, la señal de reloj no se transmite junto con los datos. Por esta razón, el receptor necesita generar internamente una referencia temporal que le permita determinar en qué momento debe leer cada bit.
+
+En la arquitectura propuesta se considera un esquema de sobremuestreo, por lo que durante la duración de un bit UART se generan varios pulsos `s_tick`.
+
+```text
+clk
+ ↓
+baud_gen
+ ↓
+s_tick
+```
+
+#### `UART_RX` — Receptor UART
+
+El módulo `UART_RX` es responsable de interpretar la información que llega serialmente por la entrada `rx`.
+
+Sus entradas principales son:
+
+- `rx`: línea serial proveniente del dispositivo transmisor.
+- `s_tick`: referencia temporal generada por `baud_gen`.
+
+Sus salidas principales son:
+
+- `DOUT[7:0]`: byte reconstruido.
+- `RX_DONE`: señal que indica que la recepción de un byte ha finalizado.
+
+Su función consiste en detectar el bit de inicio, muestrear los bits de datos y reconstruir nuevamente el byte transmitido.
+
+```text
+rx
+        ┌─────────┐
+───────►│ UART_RX │───────► DOUT[7:0]
+s_tick ─►         │───────► RX_DONE
+        └─────────┘
+```
+
+#### `CHAR_BUF` — Buffer del carácter
+
+El módulo `CHAR_BUF` almacena el byte que acaba de ser recibido.
+
+Su propósito es desacoplar el funcionamiento del receptor UART del funcionamiento de la pantalla. De esta manera, el receptor puede continuar preparado para recibir nueva información mientras el carácter anterior permanece disponible para el sistema de visualización.
+
+Sus señales principales son:
+
+- `DIN[7:0]`: dato que se desea almacenar.
+- `WR`: habilitación de escritura.
+- `CHAR_CODE[7:0]`: carácter almacenado.
+
+Cuando `RX_DONE` indica que existe un nuevo byte válido, la lógica de control habilita la escritura del buffer.
+
+```text
+DOUT[7:0]
+    ↓
+CHAR_BUF
+    ↓
+CHAR_CODE[7:0]
+```
+
+#### `ROW_IDX` — Contador de filas
+
+La matriz LED de 8×8 se recorre de forma secuencial fila por fila.
+
+Para identificar qué fila se encuentra activa se utiliza el contador:
+
+```text
+ROW_IDX[2:0]
+```
+
+Al utilizar tres bits pueden representarse ocho estados:
+
+```text
+000 → fila 0
+001 → fila 1
+010 → fila 2
+011 → fila 3
+100 → fila 4
+101 → fila 5
+110 → fila 6
+111 → fila 7
+```
+
+El contador posee señales de control que permiten reiniciarlo (`RST`) e incrementarlo (`INC`).
+
+#### `row_comp` — Comparador de última fila
+
+El bloque `row_comp` determina cuándo el contador ha alcanzado la última fila de la matriz.
+
+La condición principal es:
+
+```text
+ROW_IDX == 7
+```
+
+Cuando esta condición se cumple, se genera una señal que informa a la lógica de control que el recorrido de las ocho filas ha finalizado.
+
+Conceptualmente:
+
+```text
+ROW_IDX[2:0]
+     ↓
+ row_comp
+     ↓
+ LAST_ROW
+```
+
+Este bloque se representa explícitamente en esta primera versión para hacer visible la lógica asociada al control del recorrido de las filas.
+
+#### `FONT_ROM` — Memoria de caracteres
+
+El byte recibido mediante UART identifica un carácter, pero dicho código no representa directamente una imagen para la matriz LED.
+
+Por ejemplo:
+
+```text
+'A' = 0x41
+```
+
+El valor `0x41` identifica la letra `A`, pero la matriz necesita conocer qué LEDs deben encenderse.
+
+Para realizar esta conversión se utiliza `FONT_ROM`, una memoria que almacena los patrones gráficos de los caracteres.
+
+Para consultar la memoria se utilizan:
+
+- `CHAR_CODE[7:0]`: identifica el carácter.
+- `ROW_IDX[2:0]`: identifica la fila del carácter.
+
+Conceptualmente:
+
+```text
+ADDR = {CHAR_CODE, ROW_IDX}
+```
+
+La salida de la memoria es:
+
+```text
+GLYPH[7:0]
+```
+
+que representa el patrón de las ocho columnas correspondiente a la fila seleccionada.
+
+Por ejemplo, un posible patrón para la letra `A` es:
+
+```text
+Fila 0 → 00111100
+Fila 1 → 01000010
+Fila 2 → 01000010
+Fila 3 → 01111110
+Fila 4 → 01000010
+Fila 5 → 01000010
+Fila 6 → 01000010
+Fila 7 → 00000000
+```
+
+#### `DISPLAY_DRV` — Controlador de la matriz
+
+El módulo `DISPLAY_DRV` transforma la información lógica del carácter en las señales físicas requeridas por la matriz LED.
+
+Recibe principalmente:
+
+- `ROW_IDX[2:0]`: fila que debe activarse.
+- `GLYPH[7:0]`: patrón correspondiente a las columnas de dicha fila.
+
+Produce:
+
+- `rows[7:0]`: selección de fila.
+- `cols[7:0]`: patrón aplicado a las columnas.
+
+Por ejemplo, si se desea mostrar la fila 0 de la letra `A`:
+
+```text
+ROW_IDX = 000
+GLYPH   = 00111100
+```
+
+el controlador puede generar:
+
+```text
+ROWS = 00000001
+COLS = 00111100
+```
+
+Posteriormente, el contador avanza hacia la siguiente fila y el proceso se repite.
+
+#### `CTRL` — Unidad de control
+
+La unidad `CTRL` coordina el funcionamiento de los diferentes módulos de la arquitectura.
+
+Recibe señales de estado provenientes de otros bloques, entre ellas:
+
+- `RX_DONE`: indica que UART recibió un byte.
+- `LAST_ROW`: indica que se alcanzó la última fila.
+- señales asociadas a la finalización o actualización del carácter.
+
+A partir de estas señales genera órdenes internas como:
+
+- escritura del buffer;
+- reinicio del contador;
+- incremento de fila;
+- inicialización de módulos;
+- carga de un nuevo carácter;
+- señalización de finalización.
+
+En esta primera versión la unidad de control se representa de manera explícita para facilitar la identificación de las relaciones entre el camino de datos y las señales de control.
+
+#### Documento de apoyo
+
+Para una explicación más detallada de cada módulo, sus señales internas, la memoria de caracteres, el contador de filas, el controlador de matriz y la organización general de la arquitectura, consultar:
+
+[**Arquitectura_BajoNivel.pdf**](docs/Arquitectura_BajoNivel.pdf)
+
+---
+
+### Comunicación entre módulos
+
+La comunicación interna puede dividirse conceptualmente en dos procesos principales:
+
+1. recepción y actualización del carácter;
+2. refresco continuo de la matriz.
+
+#### Recepción del dato
+
+La información ingresa serialmente por:
+
+```text
+rx
+```
+
+El bloque `baud_gen` genera:
+
+```text
+s_tick
+```
+
+a partir del reloj principal:
+
+```text
+clk
+ ↓
+baud_gen
+ ↓
+s_tick
+```
+
+La señal `s_tick` es utilizada por `UART_RX` como referencia temporal.
+
+Simultáneamente, la señal serial sigue la ruta:
+
+```text
+rx
+ ↓
+UART_RX
+```
+
+Cuando se ha recibido una trama completa, `UART_RX` genera:
+
+```text
+DOUT[7:0]
+```
+
+y activa:
+
+```text
+RX_DONE = 1
+```
+
+La conexión puede representarse como:
+
+```text
+                s_tick
+                  ↓
+rx ───────────► UART_RX
+                  │
+                  ├────────► DOUT[7:0]
+                  │
+                  └────────► RX_DONE
+```
+
+#### Comunicación entre `UART_RX`, `CTRL` y `CHAR_BUF`
+
+El byte reconstruido por UART se dirige al buffer mediante:
+
+```text
+DOUT[7:0]
+```
+
+Mientras tanto, la señal:
+
+```text
+RX_DONE
+```
+
+informa a la unidad de control que existe un nuevo dato válido.
+
+Conceptualmente:
+
+```text
+UART_RX
+   │
+   ├── DOUT[7:0] ─────────────► CHAR_BUF
+   │
+   └── RX_DONE ───────────────► CTRL
+                                   │
+                                   └── WR_BUF ─────► CHAR_BUF
+```
+
+Cuando la escritura está habilitada:
+
+```text
+CHAR_CODE ← DOUT
+```
+
+El carácter recibido queda disponible como:
+
+```text
+CHAR_CODE[7:0]
+```
+
+#### Comunicación entre `CHAR_BUF`, `ROW_IDX` y `FONT_ROM`
+
+La memoria de caracteres necesita dos datos:
+
+```text
+CHAR_CODE[7:0]
+```
+
+para determinar qué carácter se desea visualizar, y:
+
+```text
+ROW_IDX[2:0]
+```
+
+para determinar qué fila del carácter se desea obtener.
+
+Ambas señales llegan a `FONT_ROM`.
+
+```text
+CHAR_CODE[7:0] ───┐
+                  │
+                  ▼
+               FONT_ROM
+                  │
+                  └────────► GLYPH[7:0]
+                  ▲
+                  │
+ROW_IDX[2:0] ─────┘
+```
+
+La dirección puede representarse como:
+
+```text
+ADDR = {CHAR_CODE, ROW_IDX}
+```
+
+#### Comunicación entre `ROW_IDX`, `row_comp` y `CTRL`
+
+El contador recorre secuencialmente las ocho filas:
+
+```text
+0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
+```
+
+La unidad `CTRL` genera las señales:
+
+```text
+RST
+INC
+```
+
+para controlar el contador.
+
+A su vez, `ROW_IDX` es enviado al comparador:
+
+```text
+ROW_IDX
+   ↓
+row_comp
+   ↓
+LAST_ROW
+```
+
+Cuando:
+
+```text
+ROW_IDX = 7
+```
+
+se genera:
+
+```text
+LAST_ROW = 1
+```
+
+y esta señal regresa a `CTRL`.
+
+Conceptualmente:
+
+```text
+CTRL
+  │
+  ├── RST
+  └── INC
+      ↓
+   ROW_IDX
+      │
+      ├────────────► FONT_ROM
+      │
+      └────────────► row_comp
+                         │
+                         └── LAST_ROW ─────► CTRL
+```
+
+#### Comunicación entre `FONT_ROM` y `DISPLAY_DRV`
+
+La memoria genera:
+
+```text
+GLYPH[7:0]
+```
+
+que contiene el patrón de columnas correspondiente a la fila seleccionada.
+
+El controlador de pantalla recibe:
+
+```text
+ROW_IDX[2:0]
+```
+
+y:
+
+```text
+GLYPH[7:0]
+```
+
+Conceptualmente:
+
+```text
+ROW_IDX[2:0] ──────┐
+                   │
+                   ▼
+              DISPLAY_DRV
+                   │
+                   ├────────► rows[7:0]
+                   │
+                   └────────► cols[7:0]
+                   ▲
+                   │
+GLYPH[7:0] ────────┘
+```
+
+De esta forma, una señal determina qué fila se activa y la otra determina qué LEDs de esa fila deben encenderse.
+
+#### Refresco continuo de la matriz
+
+La visualización se realiza mediante un recorrido continuo:
+
+```text
+fila 0
+  ↓
+fila 1
+  ↓
+fila 2
+  ↓
+ ...
+  ↓
+fila 7
+  ↓
+fila 0
+```
+
+Este recorrido se repite continuamente.
+
+Aunque en un instante únicamente se procesa una fila, la velocidad de actualización permite que visualmente se perciba el carácter completo.
+
+#### Funcionamiento concurrente
+
+El sistema puede interpretarse como dos procesos que trabajan de forma concurrente.
+
+Por un lado:
+
+```text
+RECEPCIÓN UART
+
+esperar byte
+    ↓
+recibir byte
+    ↓
+guardar byte
+```
+
+Por otro:
+
+```text
+VISUALIZACIÓN
+
+fila 0
+  ↓
+fila 1
+  ↓
+fila 2
+  ↓
+ ...
+  ↓
+fila 7
+  ↓
+fila 0
+```
+
+El punto que conecta ambos procesos es:
+
+```text
+CHAR_CODE
+```
+
+Este registro contiene en todo momento el carácter que debe representarse.
+
+Mientras no llegue un nuevo byte, `CHAR_CODE` permanece constante y la matriz continúa refrescando el mismo patrón.
+
+Cuando llega un nuevo carácter, el contenido de `CHAR_CODE` cambia y `FONT_ROM` comienza a proporcionar el nuevo patrón.
+
+#### Ejemplo de comunicación entre módulos: carácter `A`
+
+Para estudiar de manera concreta el intercambio de señales entre los módulos se utiliza como ejemplo:
+
+```text
+A = 0x41 = 01000001
+```
+
+El recorrido completo es:
+
+```text
+A
+ ↓
+0x41
+ ↓
+trama UART
+ ↓
+rx
+ ↓
+UART_RX
+ ↓
+DOUT = 0x41
+ ↓
+CHAR_BUF
+ ↓
+CHAR_CODE = 0x41
+ ↓
+FONT_ROM
+ ↓
+GLYPH
+ ↓
+DISPLAY_DRV
+ ↓
+ROWS / COLS
+ ↓
+A visible
+```
+
+En este ejemplo:
+
+```text
+DOUT      = 0x41
+CHAR_CODE = 0x41
+```
+
+Para la fila 0:
+
+```text
+ROW_IDX = 000
+GLYPH   = 00111100
+ROWS    = 00000001
+COLS    = 00111100
+```
+
+Posteriormente:
+
+```text
+ROW_IDX = 001
+```
+
+y la ROM entrega la siguiente fila del carácter:
+
+```text
+GLYPH = 01000010
+```
+
+El proceso continúa hasta recorrer las ocho filas.
+
+#### Documento de apoyo
+
+El recorrido completo del carácter `A`, incluyendo:
+
+- conversión a ASCII;
+- construcción de la trama UART;
+- transmisión LSB primero;
+- sobremuestreo;
+- reconstrucción de `DOUT`;
+- activación de `RX_DONE`;
+- almacenamiento en `CHAR_BUF`;
+- generación de `CHAR_CODE`;
+- consulta de `FONT_ROM`;
+- generación de `GLYPH`;
+- recorrido de `ROW_IDX`;
+- valores de `ROWS` y `COLS`;
+- multiplexado de la matriz;
+
+se encuentra desarrollado en:
+
+[**Ejemplo_CajaNegra_UART.pdf**](docs/Ejemplo_CajaNegra_UART.pdf)
