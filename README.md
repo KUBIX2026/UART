@@ -68,100 +68,299 @@ Para señalar el fin del paquete de datos, el UART transmisor lleva la lìnea de
 
 ## 2.Pantalla M5STACK
 
- Pantalla LED de la serie Chain de M5Stack, que incorpora una unidad de matriz de puntos LED RGB de 8×8. Admite el control independiente de píxeles, la escritura de píxeles por lotes y la actualización rápida del búfer de pantalla completa. Integra generación de caracteres ASCII, desplazamiento de cadenas de texto, ajuste de brillo y rotación de pantalla en varios ángulos, lo que permite crear diversos efectos dinámicos de luz y animaciones de píxeles. Es ideal para creaciones de luces de píxeles, iluminación ambiental de escritorio, letreros luminosos creativos e iluminación indicadora para dispositivos inteligentes. Chain Mono funciona con un controlador principal STM32G031G8U6 y utiliza un protocolo de comunicación serie UART en cadena (daisy-chain). A través de dos interfaces de expansión HY2.0-4P, se puede ampliar con más dispositivos de la serie Chain para construir aplicaciones interactivas más completas.
+### Protocolo UART – Pantalla Chain RGB
+### -¿Qué es la Chain RGB?
 
-<img width="1600" height="1040" alt="M5STACK" src="https://github.com/user-attachments/assets/406a6764-53d2-4efb-abb8-ee6831174e31" />
+Es una pantalla de **8×8 LEDs RGB** (64 LEDs en total) que se controla enviándole comandos por puerto serie.
 
-## Especificaciones tècnicas
-
-| Especificación | Parámetro |
+| Característica | Valor |
 |---|---|
-| MCU | STM32G031G8U6 |
-| Alimentación de entrada | DC 5 V |
-| Comunicación | UART 115200 bps @ 8N1 |
-| Interfaz | 2 x HY2.0-4P |
-| Color del LED | Blanco |
-| Consumo en reposo | DC 5 V @ 8.13 mA |
-| Consumo en operación | DC 5 V @ 22.29 mA (brillo máximo, todos encendidos) |
-| Temperatura de operación | 0 ~ 40 °C |
-| Tamaño del producto | 24.0 x 24.0 x 16.0 mm |
-| Peso del producto | 6.2 g |
+| Matriz | 8 × 8 LEDs RGB (64 × WS2812E) |
+| Microcontrolador interno | STM32G031G8U6 |
+| Alimentación | 5 V |
+| Conectores | 2 × HY2.0-4P (uno de entrada y otro de salida) |
+| Colores | Formato RGB565 (16 bits por color) |
+| Texto | Fuente ASCII integrada de 5×7 |
+| Rotación | 0°, 90°, 180°, 270° |
 
-##  Uso del Chain Mono en el videojuego
+La pantalla se puede **conectar en cadena** con otras pantallas Chain: la salida de una va a la entrada de la siguiente. Cada pantalla de la cadena tiene un número de identificación llamado **Index**, que se usa para decirle a cuál de ellas va dirigido cada comando.
 
-El juego usa **4 módulos M5STACK** conectados en cadena como una sola pantalla LED.
+> Importante: el brillo alto durante mucho tiempo puede dañar los LEDs. El fabricante recomienda usar alrededor del **50 %**.
 
-### La pantalla
+---
 
-| Característica | Detalle |
-|---|---|
-| Resolución por módulo | 8 × 8 píxeles |
-| Resolución total (4 módulos en fila) | **32 × 8 píxeles** |
-| Color | Monocromático (blanco), cada LED solo está encendido o apagado |
-| Escala de grises / color | No soporta |
-
->  El marcador debe ser corto.
-
-###  Cómo se dibuja
-
-Cada módulo tiene un **búfer de imagen de 8 bytes**: un byte por fila y un bit por LED.
-
-```
-Fila 0 → 0b00111100
-Fila 1 → 0b01000010
-Fila 2 → 0b10100101
-...
-Fila 7 → 0b00111100
-```
-
-Funciones disponibles:
-
-- **Píxel individual:** enciende o apaga un LED concreto.
-- **Escritura por lotes:** modifica varios píxeles en un solo comando.
-- **Refresco completo:** envía el cuadro entero de una vez (el más adecuado para un juego: se arma el cuadro y se manda).
-- **Texto ASCII integrado:** con desplazamiento de hasta 32 caracteres por nodo, útil para el marcador o "GAME OVER".
-- **Brillo ajustable.**
-- **Rotación** de 0°, 90°, 180° y 270°, para orientar la pantalla sin cambiar la lógica del juego.
-
-###  Conexión en cadena (daisy-chain)
-
-Cada módulo tiene dos conectores HY2.0-4P: **IN** (entrada) y **OUT** (salida).
-
-```
-[Controlador] ──► IN [Módulo 1] OUT ──► IN [Módulo 2] OUT ──► IN [Módulo 3] OUT ──► IN [Módulo 4]
-```
-
-- El controlador se conecta al **IN del primer módulo**.
-- El orden de la cadena determina qué parte de la pantalla dibuja cada módulo.
-- Los módulos se unen entre sí con el **Chain Bridge**, respetando la flecha triangular del sentido de la cadena.
-
-###  Comunicación
+### -Comunicación serial
 
 | Parámetro | Valor |
 |---|---|
-| Protocolo | UART |
-| Velocidad | 115200 bps, 8N1 |
-| Velocidad máxima teórica | ~11,520 bytes/s |
+| Tipo | UART asíncrono |
+| Velocidad | **115200 bps** |
+| Bits de datos | 8 |
+| Bit de parada | 1 |
+| Paridad | Ninguna |
+| Control de flujo | Ninguno |
 
-Cada cuadro de un módulo ocupa 8 bytes más la cabecera del protocolo. Con 4 módulos hay que enviar 4 cuadros por refresco, y esto **limita los cuadros por segundo** del juego.
+---
 
-###  Alimentación
+### -Formato de las tramas
 
-- Se alimenta a **5 V** a través del bus.
-- Consumo máximo por módulo: ~22.29 mA.
-- Consumo máximo de los 4 módulos: **~90 mA**, que cualquier controlador puede suministrar.
+Toda la comunicación se hace con **tramas** (paquetes de bytes). Siempre empiezan con `AA 55` y terminan con `55 AA`.
 
-###  Funcionamiento interno
+```
+AA 55 | Len_L Len_H | Index | Cmd | Datos... | CRC | 55 AA
+```
 
-- Un **STM32G031G8U6** recibe los comandos y se encarga de encender los LEDs.
-- Los 64 LEDs se manejan con solo **9 pines** mediante *charlieplexing*: el microcontrolador enciende los LEDs de uno en uno, tan rápido que parece que están todos encendidos a la vez.
-- El controlador del juego **no necesita hacer ese refresco**, solo enviar el dibujo.
+| Campo | Bytes | Qué es |
+|---|---|---|
+| Inicio | 2 | Siempre `AA 55` |
+| Length | 2 | Cantidad de bytes desde `Index` hasta `CRC`, contando ambos. Se envía primero el byte bajo |
+| Index | 1 | Número de la pantalla a la que va dirigido el comando |
+| Cmd | 1 | Código del comando (qué queremos hacer) |
+| Datos | n | Parámetros del comando (hay comandos que no tienen) |
+| CRC | 1 | Byte de verificación (ver sección 4) |
+| Fin | 2 | Siempre `55 AA` |
 
-| Tamaño del paquete | 138.0 x 93.0 x 11.0 mm |
-| Peso bruto | 13.2 g |
+**Cómo calcular Length:**
 
-<img width="826" height="445" alt="STM32G031G8U6" src="https://github.com/user-attachments/assets/7fb01602-969e-4412-a710-2655d6f9bbb8" />
+```
+Length = 2 (Index y Cmd) + cantidad de bytes de datos + 1 (CRC)
+```
 
-### Link video funcionamiento
-https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1245/U217_Chain_Mono_video_EN.mp4 
+Los números de más de un byte (como Length) se envían **primero el byte menos significativo**. Por ejemplo, 11 (`0x000B`) se envía como `0B 00`.
 
+### La respuesta
+
+La pantalla responde con una trama del mismo formato, con el mismo `Index` y el mismo `Cmd` que el comando recibido. Lo que cambia son los datos, que dependen de cada comando.
+
+---
+
+## -CRC (byte de verificación)
+
+El CRC sirve para comprobar que la trama llegó sin errores. Se calcula así:
+
+1. Se suman `Index`, `Cmd` y todos los bytes de datos.
+2. Se toma solo el byte menos significativo del resultado (los últimos 8 bits).
+
+No se incluyen el inicio, el fin, Length ni el propio CRC. Si una trama llega con un CRC incorrecto, se descarta.
+
+**Ejemplo:** limpiar la pantalla con Index = `01` y Cmd = `E4` (no tiene datos).
+
+```
+CRC = (0x01 + 0xE4) & 0xFF = 0xE5
+Trama: AA 55 03 00 01 E4 E5 55 AA
+```
+
+---
+
+### Colores (RGB565)
+
+Cada color se guarda en 16 bits: **5 bits de rojo, 6 de verde y 5 de azul**.
+
+```
+bits 15..11 = Rojo | bits 10..5 = Verde | bits 4..0 = Azul
+```
+
+El color se envía en dos bytes, **primero el byte bajo y luego el alto**.
+
+| Color | Valor de 16 bits | Bytes enviados |
+|---|---|---|
+| Rojo | `0xF800` | `00 F8` |
+| Verde | `0x07E0` | `E0 07` |
+| Azul | `0x001F` | `1F 00` |
+| Blanco | `0xFFFF` | `FF FF` |
+| Apagado | `0x0000` | `00 00` |
+
+---
+
+### -Coordenadas de los píxeles
+
+La matriz es de 8×8, así que X e Y van de 0 a 7. Se juntan en un solo byte:
+
+```
+bits 7..6 = reservados | bits 5..3 = X | bits 2..0 = Y
+Coord = (X << 3) | Y
+```
+
+Ejemplo: X = 3, Y = 4 → `(3 << 3) | 4 = 0x1C`.
+
+---
+
+### -Modos de la pantalla
+
+La pantalla tiene dos modos de funcionamiento, que se eligen con el comando `0x10`:
+
+| Mode | Nombre | Qué hace |
+|---|---|---|
+| `0` | Control de píxeles | Permite dibujar píxeles y caracteres directamente (modo por defecto) |
+| `1` | Texto desplazable | Permite mostrar un texto que se desplaza por la pantalla |
+
+Cada comando funciona solo en su modo. Si se envía uno que no corresponde al modo actual, la pantalla responde con estado `2` .
+
+---
+
+### -Comandos principales
+
+En todas las tablas, `Index` es el número de la pantalla.
+
+### `0x10` – Cambiar el modo
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 04 00 Index 10 Mode CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index 10 Status CRC 55 AA` |
+
+`Mode`: `0` píxeles, `1` texto desplazable.
+
+### `0x30` – Encender píxeles (modo 0)
+
+Enciende de 1 a 64 píxeles, cada uno con su coordenada y su color.
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 (04+Num×3) 00 Index 30 Num [Coord Color_L Color_H]×Num CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index 30 Status CRC 55 AA` |
+
+`Num` es la cantidad de píxeles (de 1 a 64). Por cada píxel se envían 3 bytes: `Coord`, `Color_L`, `Color_H`.
+
+### `0x31` – Actualizar toda la pantalla (modo 0)
+
+Envía el color de los 64 píxeles de una sola vez (128 bytes de datos). Los píxeles van de izquierda a derecha y de arriba hacia abajo: primero los 8 de la fila 0, luego los de la fila 1, y así hasta la fila 7.
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 83 00 Index 31 [Color_L Color_H]×64 CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index 31 Status CRC 55 AA` |
+
+### `0x34` – Mostrar un carácter (modo 0)
+
+Dibuja un carácter ASCII (letras, números y símbolos, códigos 32 a 127) con la fuente integrada de 5×7.
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 07 00 Index 34 Char Offset Color_L Color_H CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index 34 Status CRC 55 AA` |
+
+- `Char`: código ASCII del carácter (por ejemplo `'5'` = `0x35`).
+- `Offset`: posición del carácter. Bits 7..4 = desplazamiento en X (0–7), bits 3..0 = desplazamiento en Y (0–7). Es decir, `Offset = (X << 4) | Y`.
+- `Color`: color en RGB565.
+
+### `0x40` – Mostrar texto desplazable (modo 1)
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 (09+N) 00 Index 40 Scroll_mode Interval_L Interval_H Color_L Color_H N chars... CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index 40 Status CRC 55 AA` |
+
+- `Scroll_mode`: un byte con dos partes.
+  - Bits 7..4 (dirección): `0` izquierda, `1` derecha, `2` arriba, `3` abajo.
+  - Bits 3..0 (tipo): `0` una sola vez, `1` en bucle, `2` ida y vuelta.
+- `Interval`: tiempo en milisegundos que tarda en moverse un píxel (2 bytes, primero el bajo).
+- `Color`: color en RGB565. Si vale `0`, el texto usa un color degradado automático.
+- `N`: cantidad de caracteres del texto (máximo 32).
+- `chars`: los códigos ASCII del texto.
+
+### `0x42` – Controlar el desplazamiento (modo 1)
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 04 00 Index 42 State CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index 42 Status CRC 55 AA` |
+
+`State`: `0` iniciar o continuar, `1` pausar, `2` detener y borrar el texto.
+
+### `0xE4` – Borrar la pantalla
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 03 00 Index E4 CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index E4 Status CRC 55 AA` |
+
+### `0xE2` – Cambiar el brillo
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 05 00 Index E2 Brillo Save CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index E2 Status CRC 55 AA` |
+
+- `Brillo`: de 0 a 100 (en %). Por defecto es 50.
+- `Save`: `0` = el cambio no queda guardado al apagar, `1` = se guarda en la memoria interna de la pantalla.
+
+### `0xE0` – Cambiar la rotación
+
+| | Trama |
+|---|---|
+| Envío | `AA 55 05 00 Index E0 Rot Save CRC 55 AA` |
+| Respuesta | `AA 55 04 00 Index E0 Status CRC 55 AA` |
+
+- `Rot`: `0` = 0°, `1` = 90°, `2` = 180°, `3` = 270° (giro en sentido horario).
+- `Save`: igual que en el brillo.
+
+> Guardar en la memoria interna (`Save = 1`) es lento y la memoria se desgasta si se hace muchas veces. Lo normal es usar `Save = 0`.
+
+---
+
+### -Estado de las respuestas
+
+La mayoría de los comandos de escritura responden con un `Status`:
+
+| Valor | Significado |
+|---|---|
+| `0` | Falló |
+| `1` | Correcto |
+| `2` | Modo incorrecto (el comando no corresponde al modo actual) |
+
+---
+
+### -Comandos de la cadena
+
+Estos comandos se envían con `Index = 0xFF`, que representa a toda la cadena.
+
+| Cmd | Para qué sirve | Envío | Respuesta |
+|---|---|---|---|
+| `0xFD` | Heartbeat: comprobar si hay algo conectado | `AA 55 03 00 FF FD FC 55 AA` | La misma trama |
+| `0xFE` | Contar cuántas pantallas hay en la cadena | `AA 55 04 00 FF FE 00 FD 55 AA` | `AA 55 04 00 FF FE Cantidad CRC 55 AA` |
+
+Además, la pantalla envía por su cuenta el comando `0xFC` cuando se enciende o cuando cambia la cadena, para avisar al host. Este comando no tiene respuesta.
+
+---
+
+###  -Lista de todos los comandos
+
+| Cmd | Función | Modo |
+|---|---|---|
+| `0x10` | Cambiar el modo | – |
+| `0x11` | Leer el modo actual | – |
+| `0x30` | Encender píxeles | 0 |
+| `0x31` | Actualizar toda la pantalla | 0 |
+| `0x32` | Leer el color de píxeles | – |
+| `0x33` | Leer el color de toda la pantalla | – |
+| `0x34` | Mostrar un carácter | 0 |
+| `0x40` | Mostrar texto desplazable | 1 |
+| `0x41` | Leer el texto desplazable actual | 1 |
+| `0x42` | Controlar el desplazamiento | 1 |
+| `0x43` | Leer el estado del desplazamiento | 1 |
+| `0xE0` / `0xE1` | Cambiar / leer la rotación | – |
+| `0xE2` / `0xE3` | Cambiar / leer el brillo | – |
+| `0xE4` | Borrar la pantalla | – |
+| `0xF8` – `0xFB` | Consultar UID, versiones y tipo de dispositivo | – |
+| `0xFC` | Aviso de la pantalla al encenderse o cambiar la cadena | – |
+| `0xFD` | Heartbeat | – |
+| `0xFE` | Contar pantallas de la cadena | – |
+
+---
+
+###  -Ejemplos de tramas
+
+Todos con `Index = 01`, salvo los de la cadena.
+
+| Acción | Trama (hex) |
+|---|---|
+| Modo píxeles | `AA 55 04 00 01 10 00 11 55 AA` |
+| Modo texto desplazable | `AA 55 04 00 01 10 01 12 55 AA` |
+| Un píxel rojo en X=3, Y=4 | `AA 55 07 00 01 30 01 1C 00 F8 46 55 AA` |
+| Mostrar `'5'` en verde (Offset X=1, Y=0) | `AA 55 07 00 01 34 35 10 E0 07 61 55 AA` |
+| Texto `"HI"` hacia la izquierda, en bucle, 100 ms por píxel, color degradado | `AA 55 0B 00 01 40 01 64 00 00 00 02 48 49 39 55 AA` |
+| Brillo al 40 %, sin guardar | `AA 55 05 00 01 E2 28 00 0B 55 AA` |
+| Borrar la pantalla | `AA 55 03 00 01 E4 E5 55 AA` |
+| Heartbeat | `AA 55 03 00 FF FD FC 55 AA` |
+| Contar pantallas | `AA 55 04 00 FF FE 00 FD 55 AA` |
