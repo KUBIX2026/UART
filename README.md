@@ -630,8 +630,10 @@ En esta primera versión la unidad de control se representa de manera explícita
 #### Documento de apoyo
 
 Para una explicación más detallada de cada módulo, sus señales internas, la memoria de caracteres, el contador de filas, el controlador de matriz y la organización general de la arquitectura, consultar:
+[Arquitectura_BajoNivel.pdf](https://github.com/user-attachments/files/33362987/Arquitectura_BajoNivel.pdf)
 
-[**Arquitectura_BajoNivel.pdf**](docs/Arquitectura_BajoNivel.pdf)
+
+
 
 ---
 
