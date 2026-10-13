@@ -368,6 +368,9 @@ Todos con `Index = 01`, salvo los de la cadena.
 ## 3. Diagrama de flujo alto nivel
 En el siguiente diagrama se puede apreciar el funcionamiento del protocolo, comò serìa el proceso en el què se envìa el puntaje a la pantalla.
 
-[Diagrama de flujo alto nivel.drawio.pdf](https://github.com/user-attachments/files/33361067/Diagrama.de.flujo.alto.nivel.drawio.pdf)
+<img width="360" height="822" alt="Diagrama de flujo alto nivel png drawio" src="https://github.com/user-attachments/assets/7e9a2ecc-3285-4da5-a4d2-b4787eff7676" />
+
+[Diagrama de flujo alto nivel.drawio.pdf](https://github.com/user-attachments/files/33361124/Diagrama.de.flujo.alto.nivel.drawio.pdf)
+
 
 
