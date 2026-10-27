@@ -70,4 +70,5 @@ Para señalar el fin del paquete de datos, el UART transmisor lleva la lìnea de
 A continuaciòn se presenta el diagrama de caja negra entorno a las señales de entrada y salidas del sistema,este representa el funcionamiento en general de la comunicaciòn sereal asìncrona entre dos dispositivos sin detallar el proceso interno del dispositivo.
 <img width="800" height="300" alt="Diagramas uart drawio" src="https://github.com/user-attachments/assets/6b09d11b-e4ad-434a-8af0-473fdccda05b" />
 
+### Caracteristicas y especificaciones pantalla M5STACK
 
