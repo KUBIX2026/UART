@@ -71,4 +71,16 @@ A continuaciòn se presenta el diagrama de caja negra entorno a las señales de 
 <img width="800" height="300" alt="Diagramas uart drawio" src="https://github.com/user-attachments/assets/6b09d11b-e4ad-434a-8af0-473fdccda05b" />
 
 ### Caracteristicas y especificaciones pantalla M5STACK
+Es una pantalla de **8×8 LEDs RGB** (64 LEDs en total) que se controla enviándole comandos por puerto serie.
 
+| Característica | Valor |
+|---|---|
+| Matriz | 8 × 8 LEDs RGB (64 × WS2812E) |
+| Microcontrolador interno | STM32G031G8U6 |
+| Alimentación | 5 V |
+| Conectores | 2 × HY2.0-4P (uno de entrada y otro de salida) |
+| Colores | Formato RGB565 (16 bits por color) |
+| Texto | Fuente ASCII integrada de 5×7 |
+| Rotación | 0°, 90°, 180°, 270° |
+
+La pantalla se puede **conectar en cadena** con otras pantallas Chain: la salida de una va a la entrada de la siguiente. Cada pantalla de la cadena tiene un número de identificación llamado **Index**, que se usa para decirle a cuál de ellas va dirigido cada comando.
