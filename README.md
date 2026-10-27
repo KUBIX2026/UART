@@ -67,4 +67,6 @@ Para señalar el fin del paquete de datos, el UART transmisor lleva la lìnea de
 
 ## Pantalla Auxiliar M5STACK
 ### Diagrama de caja negra entradas y salidas
+<img width="412" height="151" alt="Diagramas uart drawio" src="https://github.com/user-attachments/assets/6b09d11b-e4ad-434a-8af0-473fdccda05b" />
+
 
