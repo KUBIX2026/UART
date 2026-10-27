@@ -69,6 +69,20 @@ Para señalar el fin del paquete de datos, el UART transmisor lleva la lìnea de
 ### Diagrama de caja negra entradas y salidas
 A continuaciòn se presenta el diagrama de caja negra entorno a las señales de entrada y salidas del sistema,este representa el funcionamiento en general de la comunicaciòn sereal asìncrona entre dos dispositivos sin detallar el proceso interno del dispositivo.
 <img width="800" height="300" alt="Diagramas uart drawio" src="https://github.com/user-attachments/assets/6b09d11b-e4ad-434a-8af0-473fdccda05b" />
+### Diagrama de flujo alto nivel 
+
+<img width="1680" height="2115" alt="diagrama_flujo_alto_nivel" src="https://github.com/user-attachments/assets/be220294-8c66-4589-94ca-bd0dd6624b8f" />
+
+
+### Diagrama de flujo bajo nivel 
+<img width="1033" height="1226" alt="IMG_20261027_055616" src="https://github.com/user-attachments/assets/f7ad405b-bc97-4791-9761-45765be5bb98" />
+
+### Diagrama de bloques 
+<img width="2100" height="1500" alt="diagrama_bloques_uart_display" src="https://github.com/user-attachments/assets/a588ab3d-30be-4243-b737-dcc70ea77865" />
+
+
+
+
 
 ### 1. Caracteristicas y especificaciones pantalla M5STACK
 Es una pantalla de **8×8 LEDs RGB** (64 LEDs en total) que se controla enviándole comandos por puerto serie.
