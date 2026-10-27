@@ -96,4 +96,19 @@ La pantalla se puede **conectar en cadena** con otras pantallas Chain: la salida
 | Control de flujo | Ninguno |
 
 ---
+### Formato de trama 
+#### Formato de trama de solicitud 
 
+```
+AA 55 <Length_low> <Length_high> <Index> <Cmd> <Req Data...> <CRC> 55 AA
+```
+
+| Campo | Longitud (bytes) | Descripción |
+|---|---|---|
+| Header | 2 | Fijo `0xAA 0x55` |
+| Length | 2 | Número de bytes desde `Index` hasta `CRC`, byte bajo primero |
+| Index | 1 | ID del dispositivo dentro de la cadena (Chain) |
+| Cmd | 1 | Código del comando |
+| Req Data | n | Parámetros de la petición (longitud 0 si no hay) |
+| CRC | 1 | Ver sección 3 |
+| Tail | 2 | Fijo `0x55 0xAA` |
