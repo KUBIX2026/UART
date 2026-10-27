@@ -70,7 +70,7 @@ Para señalar el fin del paquete de datos, el UART transmisor lleva la lìnea de
 A continuaciòn se presenta el diagrama de caja negra entorno a las señales de entrada y salidas del sistema,este representa el funcionamiento en general de la comunicaciòn sereal asìncrona entre dos dispositivos sin detallar el proceso interno del dispositivo.
 <img width="800" height="300" alt="Diagramas uart drawio" src="https://github.com/user-attachments/assets/6b09d11b-e4ad-434a-8af0-473fdccda05b" />
 
-### Caracteristicas y especificaciones pantalla M5STACK
+### 1. Caracteristicas y especificaciones pantalla M5STACK
 Es una pantalla de **8×8 LEDs RGB** (64 LEDs en total) que se controla enviándole comandos por puerto serie.
 
 | Característica | Valor |
@@ -84,7 +84,7 @@ Es una pantalla de **8×8 LEDs RGB** (64 LEDs en total) que se controla enviánd
 | Rotación | 0°, 90°, 180°, 270° |
 
 La pantalla se puede **conectar en cadena** con otras pantallas Chain: la salida de una va a la entrada de la siguiente. Cada pantalla de la cadena tiene un número de identificación llamado **Index**, que se usa para decirle a cuál de ellas va dirigido cada comando.
-### Comunicación serial
+#### 1.1Comunicación serial
 
 | Parámetro | Valor |
 |---|---|
@@ -96,8 +96,11 @@ La pantalla se puede **conectar en cadena** con otras pantallas Chain: la salida
 | Control de flujo | Ninguno |
 
 ---
-### Formato de trama 
-#### Formato de trama de solicitud 
+Todos los paquetes empiezan con `0xAA 0x55` y terminan con `0x55 0xAA`. Los campos de varios bytes se envían con el **byte bajo primero**.
+
+### 2. Formato de trama
+
+#### 2.1 Trama de petición (Request)
 
 ```
 AA 55 <Length_low> <Length_high> <Index> <Cmd> <Req Data...> <CRC> 55 AA
@@ -112,3 +115,333 @@ AA 55 <Length_low> <Length_high> <Index> <Cmd> <Req Data...> <CRC> 55 AA
 | Req Data | n | Parámetros de la petición (longitud 0 si no hay) |
 | CRC | 1 | Ver sección 3 |
 | Tail | 2 | Fijo `0x55 0xAA` |
+
+#### 2.2 Trama de respuesta (Response)
+
+```
+AA 55 <Length_low> <Length_high> <Index> <Cmd> <Resp Data...> <CRC> 55 AA
+```
+
+| Campo | Longitud (bytes) | Descripción |
+|---|---|---|
+| Header | 2 | Fijo `0xAA 0x55` |
+| Length | 2 | Número de bytes desde `Index` hasta `CRC`, byte bajo primero |
+| Index | 1 | ID del dispositivo dentro de la cadena |
+| Cmd | 1 | Igual que en la petición |
+| Resp Data | n | Datos de respuesta, definidos por cada comando |
+| CRC | 1 | Ver sección 3 |
+| Tail | 2 | Fijo `0x55 0xAA` |
+
+#### 2.3 Convención de la respuesta
+
+- Si responde con código de estado: `Operation_status = 0` significa que la operación falló y `Operation_status = 1` que fue exitosa.
+- Si responde sin código de estado: el éxito o fallo se juzga según las "Notas" de cada instrucción.
+
+### 3. Checksum (CRC)
+
+| Item | Regla |
+|---|---|
+| Campo | CRC |
+| Rango | Desde `Index` hasta el último byte de `Data` |
+| Algoritmo | Se suman los bytes restantes (sin header, tail, Length ni CRC) y se toman los 8 bits bajos |
+| Sin datos | `CRC = (Index + Cmd) & 0xFF` |
+| Con datos | `CRC = (Index + Cmd + Data[0] + ... + Data[n]) & 0xFF` |
+| Si falla | La trama se descarta |
+
+#### 3.1 Ejemplo de código (C)
+
+```c
+uint8_t calc_crc(uint8_t index, uint8_t cmd,
+                 const uint8_t *data, size_t data_len)
+{
+    uint16_t sum = index + cmd;
+    for (size_t i = 0; i < data_len; i++) {
+        sum += data[i];
+    }
+    return (uint8_t)(sum & 0xFF);
+}
+```
+
+### 4. Resumen de comandos
+
+| Cmd | Nombre | Length petición | Length respuesta | Parámetros de la petición | Parámetros de la respuesta |
+|---|---|---|---|---|---|
+| `0x10` | Set display mode | 0x0004 | 0x0004 | Index_id, Mode | Operation_status |
+| `0x11` | Get display mode | 0x0003 | 0x0004 | Index_id | Mode |
+| `0x30` | Set pixels | 0x0004 + Num*3 | 0x0004 | Index_id, Num, Coordinate_xy, Pixel_color | Operation_status |
+| `0x31` | Full screen display cache refresh | 0x0083 | 0x0004 | Index_id, Display_buffer | Operation_status |
+| `0x32` | Get pixel value | 0x0004 + Num | 0x0003 + Num*2 | Index_id, Num, Coordinate_xy | Pixel_color |
+| `0x33` | Get full screen display cache | 0x0003 | 0x0083 | Index_id | Display_buffer |
+| `0x34` | Display characters | 0x0007 | 0x0004 | Index_id, Char, Offset, Color | Operation_status |
+| `0x40` | Show scrolling string | 0x0009 + String_length | 0x0004 | Index_id, Scroll_mode, Scroll_interval, Color, String_length, char | Operation_status |
+| `0x41` | Get scrolling string | 0x0003 | 0x0009 + String_length | Index_id | Scroll_mode, Scroll_interval, Color, String_length, char |
+| `0x42` | Set scroll string status | 0x0004 | 0x0004 | Index_id, Scroll_state | Operation_status |
+| `0x43` | Get scroll string status | 0x0003 | 0x0004 | Index_id | Scroll_state |
+| `0xE0` | Set screen rotation angle | 0x0005 | 0x0004 | Index_id, Screen_Rotation, Save_to_flash | Operation_status |
+| `0xE1` | Get screen rotation angle | 0x0003 | 0x0004 | Index_id | Screen_Rotation |
+| `0xE2` | Set screen brightness | 0x0005 | 0x0004 | Index_id, Brightness, Save_to_flash | Operation_status |
+| `0xE3` | Get screen brightness | 0x0003 | 0x0004 | Index_id | Brightness |
+| `0xE4` | Clear screen | 0x0003 | 0x0004 | Index_id | Operation_status |
+| `0xF8` | Query device unique UID | 0x0004 | 0x0004 + 4/12 | Index_id, UID_Type | Operation_status, UID |
+| `0xF9` | Query upgrade program version | 0x0003 | 0x0004 | Index_id | Bootloader_version |
+| `0xFA` | Query device software version | 0x0003 | 0x0004 | Index_id | Firmware_version |
+| `0xFB` | Query device type | 0x0003 | 0x0005 | Index_id | Device_type |
+| `0xFC` | Enumeration request | Reporte iniciado por el dispositivo | Reporte iniciado por el dispositivo | none | none |
+| `0xFD` | Heartbeat | 0x0003 | 0x0003 | none | none |
+| `0xFE` | Enumerate to get number of cascaded devices | 0x0004 | 0x0004 | Send_num | Receive_num |
+
+### 5. Detalle de comandos
+
+#### 5.1 Set display mode (`0x10`)
+
+- Petición: `AA 55 | 0x04 | 0x00 | Index_id | 0x10 | Mode | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x10 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa.
+- `Mode` (por defecto 0): 0 = modo control de pixeles (se ponen los pixeles directamente), 1 = modo de caracteres con scroll (string en desplazamiento).
+
+#### 5.2 Get display mode (`0x11`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0x11 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x11 | Mode | CRC | 55 AA`
+- `Mode`: 0 = control de pixeles, 1 = scroll de caracteres.
+
+#### 5.3 Set pixels (`0x30`)
+
+- Petición: `AA 55 | 0x04 + Num*3 | 0x00 | Index_id | 0x30 | Num | Coordinate_xy0 | Pixel_color_low0 | Pixel_color_high0 | ... | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x30 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa, 2 = modo incorrecto (se necesita modo pixel).
+- `Num`: rango 1 a 64.
+- `Coordinate_xy`: bit[7:6] reservado, bit[5:3] = coordenada X (0-7), bit[2:0] = coordenada Y (0-7).
+- `Pixel_color`: RGB565 de 16 bits (R 5 bits + G 6 bits + B 5 bits). bit[15:11] = rojo, bit[10:5] = verde, bit[4:0] = azul. `Pixel_color = (uint16_t)((Pixel_color_high << 8) | Pixel_color_low)`, rango 0 a 65535.
+
+#### 5.4 Full-screen display cache refresh (`0x31`)
+
+- Petición: `AA 55 | 0x83 | 0x00 | Index_id | 0x31 | Display_buffer_low0 | Display_buffer_high0 | Display_buffer_low1 | ... | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x31 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa, 2 = modo incorrecto (se necesita modo pixel).
+- `Display_buffer` en RGB565. Los pixeles se almacenan de izquierda a derecha y de arriba a abajo (por filas): primero los 8 pixeles de la fila 0, luego la fila 1, etc. `Display_buffer0 = (uint16_t)((Display_buffer_high0 << 8) | Display_buffer_low0)`, rango 0 a 65535.
+
+#### 5.5 Get pixel value (`0x32`)
+
+- Petición: `AA 55 | 0x04 + Num | 0x00 | Index_id | 0x32 | Num | Coordinate_xy0 | Coordinate_xy1 | ... | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x03 + Num*2 | 0x00 | Index_id | 0x32 | Pixel_color_low0 | Pixel_color_high0 | Pixel_color_low1 | ... | CRC | 55 AA`
+- `Coordinate_xy`: bit[7:6] reservado, bit[5:3] = X (0-7), bit[2:0] = Y (0-7).
+- `Pixel_color`: RGB565, mismo formato que en 5.3.
+
+#### 5.6 Get full-screen display cache (`0x33`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0x33 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x83 | 0x00 | Index_id | 0x33 | Display_buffer_low0 | Display_buffer_high0 | ... | CRC | 55 AA`
+- `Display_buffer` en RGB565, almacenado por filas (igual que en 5.4).
+
+#### 5.7 Display characters (`0x34`)
+
+- Petición: `AA 55 | 0x07 | 0x00 | Index_id | 0x34 | Char | Offset | Color_low | Color_high | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x34 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa, 2 = modo incorrecto (se necesita modo pixel).
+- `Char`: código ASCII del carácter. Soporta letras, números y símbolos con ASCII entre 32 y 127. Tamaño de fuente 5x7.
+- `Offset`: [7:4] = desplazamiento en el eje X (0 a 7), [3:0] = desplazamiento en el eje Y (0 a 7).
+- `Color`: RGB565 de 16 bits. `Color = (uint16_t)((Color_high << 8) | Color_low)`, rango 0 a 65535.
+
+#### 5.8 Display scrolling string (`0x40`)
+
+- Petición: `AA 55 | 0x09 + String_length | 0x00 | Index_id | 0x40 | Scroll_mode | Scroll_interval_low | Scroll_interval_high | Color_low | Color_high | String_length | char... | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x40 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa, 2 = modo incorrecto (se necesita modo de caracteres con scroll).
+- `Scroll_mode`: [7:4] = dirección (0 izquierda, 1 derecha, 2 arriba, 3 abajo); [3:0] = modo (0 una vez y se detiene, 1 en bucle, 2 va y vuelve).
+- `Scroll_interval`: velocidad en ms/pixel (cada intervalo mueve un pixel). `Scroll_interval = (uint16_t)((Scroll_interval_high << 8) | Scroll_interval_low)`, rango 0 a 65535.
+- `Color`: RGB565. Si `Color = 0`, el color de la fuente es un degradado.
+- `String_length`: longitud del string.
+- `char`: letras, números y símbolos con ASCII entre 32 y 127, fuente 5x7.
+
+#### 5.9 Get scrolling string (`0x41`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0x41 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x09 + String_length | 0x00 | Index_id | 0x41 | Scroll_mode | Scroll_interval_low | Scroll_interval_high | Color_low | Color_high | String_length | char... | CRC | 55 AA`
+- Los campos tienen el mismo significado que en 5.8.
+
+#### 5.10 Set scrolling string status (`0x42`)
+
+- Petición: `AA 55 | 0x04 | 0x00 | Index_id | 0x42 | Scroll_state | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x42 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa, 2 = modo incorrecto (se necesita modo de caracteres con scroll).
+- `Scroll_state`: 0 = iniciar/continuar el scroll, 1 = pausar (la pantalla mantiene el carácter actual fijo), 2 = detener y limpiar (borra los caracteres y empieza desde el inicio la próxima vez).
+
+#### 5.11 Get scrolling string status (`0x43`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0x43 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0x43 | Scroll_state | CRC | 55 AA`
+- `Scroll_state`: 0 = en scroll, 1 = en pausa, 2 = inactivo/detenido.
+
+#### 5.12 Set screen rotation angle (`0xE0`)
+
+- Petición: `AA 55 | 0x05 | 0x00 | Index_id | 0xE0 | Screen_Rotation | Save_to_flash | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0xE0 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa.
+- `Screen_Rotation`: 0 = ángulo por defecto, 1 = 90° horario, 2 = 180° horario, 3 = 270° horario (90° antihorario).
+- `Save_to_flash`: 0 = no guardar, 1 = guardar.
+- La configuración exitosa tiene efecto inmediato.
+- Guardar en la Flash interna requiere borrar la página, lo cual tarda unos 20 ms. Durante ese tiempo la interrupción del puerto serie se apaga, y las operaciones frecuentes afectan la vida útil del dispositivo.
+
+#### 5.13 Get screen rotation angle (`0xE1`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0xE1 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0xE1 | Screen_Rotation | CRC | 55 AA`
+- `Screen_Rotation`: 0 = por defecto, 1 = 90°, 2 = 180°, 3 = 270°.
+
+#### 5.14 Set screen brightness (`0xE2`)
+
+- Petición: `AA 55 | 0x05 | 0x00 | Index_id | 0xE2 | Brightness | Save_to_flash | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0xE2 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa.
+- `Brightness`: por defecto 50 %, rango 0 a 100 %. Operar a brillo alto por mucho tiempo puede causar daño; se recomienda un brillo menor al 60 % para reducir calor y consumo.
+- `Save_to_flash`: 0 = no guardar, 1 = guardar.
+- La configuración exitosa tiene efecto inmediato.
+- Guardar en la Flash interna tarda unos 20 ms, apaga la interrupción del puerto serie y las operaciones frecuentes afectan la vida útil del dispositivo.
+
+#### 5.15 Get screen brightness (`0xE3`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0xE3 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0xE3 | Brightness | CRC | 55 AA`
+- `Brightness`: rango 0 a 100 %.
+
+#### 5.16 Clear screen (`0xE4`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0xE4 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0xE4 | Operation_status | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa.
+
+#### 5.17 Query the unique UID of the device (`0xF8`)
+
+- Petición: `AA 55 | 0x04 | 0x00 | Index_id | 0xF8 | UID_Type | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04+4/12 | 0x00 | Index_id | 0xF8 | Operation_status | UID (multi-byte) | CRC | 55 AA`
+- `Operation_status`: 0 = falló, 1 = exitosa.
+- `UID_Type`: 0 = UID de 4 bytes, 1 = UID de 12 bytes.
+
+#### 5.18 Query the upgrade program version number (`0xF9`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0xF9 | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0xF9 | Bootloader_version | CRC | 55 AA`
+
+#### 5.19 Query the device software version number (`0xFA`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0xFA | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | Index_id | 0xFA | Firmware_version | CRC | 55 AA`
+
+#### 5.20 Query device type (`0xFB`)
+
+- Petición: `AA 55 | 0x03 | 0x00 | Index_id | 0xFB | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x05 | 0x00 | Index_id | 0xFB | Device_type_low | Device_type_high | CRC | 55 AA`
+- `Device_type = (uint16_t)((Device_type_high << 8) | Device_type_low)`. El código de tipo de dispositivo para RGB es `0x000E`.
+
+#### 5.21 Enumeration request (`0xFC`)
+
+Reporte iniciado por el dispositivo. Lo envía el dispositivo final de la cadena cuando cambia el enlace, y cuando el dispositivo se enciende, para avisar al host que actualice el estado de los dispositivos de la cadena. No hay trama de petición ni de respuesta del host.
+
+#### 5.22 Heartbeat (`0xFD`)
+
+Comunicación periódica entre los dispositivos de la cadena. Permite descubrir si un dispositivo es el final de la cadena, y el host puede usarla para saber si hay un dispositivo conectado.
+
+- Petición: `AA 55 | 0x03 | 0x00 | 0xFF | 0xFD | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x03 | 0x00 | 0xFF | 0xFD | CRC | 55 AA`
+
+#### 5.23 Enumerate to get the number of cascaded devices (`0xFE`)
+
+- Petición: `AA 55 | 0x04 | 0x00 | 0xFF | 0xFE | Send_num | CRC | 55 AA`
+- Respuesta: `AA 55 | 0x04 | 0x00 | 0xFF | 0xFE | Receive_num | CRC | 55 AA`
+- `Send_num`: por defecto 0, se usa para registrar el número de dispositivos.
+- `Receive_num`: el valor indica el número de dispositivos.
+
+### 6. Ejemplo: pintar un número
+
+> Este ejemplo no viene en el PDF. Está construido aplicando el formato de trama, el checksum y los comandos descritos arriba.
+
+Objetivo: mostrar el número **5** en color rojo en la pantalla con `Index = 0x01`.
+
+#### 6.1 Paso previo: modo pixel
+
+El comando `0x34` solo funciona en modo pixel (`Mode = 0`). Si no, responde `Operation_status = 2`.
+
+```
+AA 55 04 00 01 10 00 11 55 AA
+```
+
+| Campo | Valor |
+|---|---|
+| Header | `AA 55` |
+| Length | `04 00` |
+| Index | `01` |
+| Cmd | `10` |
+| Mode | `00` |
+| CRC | `11` (0x01 + 0x10 + 0x00) |
+| Tail | `55 AA` |
+
+#### 6.2 Limpiar la pantalla (opcional, borra lo anterior)
+
+```
+AA 55 03 00 01 E4 E5 55 AA
+```
+
+CRC = 0x01 + 0xE4 = `0xE5`.
+
+#### 6.3 Mostrar el carácter con `0x34`
+
+```
+AA 55 07 00 01 34 35 10 00 F8 72 55 AA
+```
+
+| Campo | Valor | Explicación |
+|---|---|---|
+| Header | `AA 55` | Fijo |
+| Length | `07 00` | Index + Cmd + Char + Offset + ColorL + ColorH + CRC = 7 bytes |
+| Index | `01` | Pantalla 1 de la cadena |
+| Cmd | `34` | Display characters |
+| Char | `35` | ASCII de '5' |
+| Offset | `10` | [7:4] = 1 (x), [3:0] = 0 (y) |
+| Color_low | `00` | Rojo RGB565 = `0xF800`, byte bajo primero |
+| Color_high | `F8` | |
+| CRC | `72` | Ver cálculo abajo |
+| Tail | `55 AA` | Fijo |
+
+Cálculo del CRC: `0x01 + 0x34 + 0x35 + 0x10 + 0x00 + 0xF8 = 0x172`, se toma el byte bajo: `0x72`.
+
+Respuesta esperada si todo sale bien (`Operation_status = 1`):
+
+```
+AA 55 04 00 01 34 01 36 55 AA
+```
+
+El valor exacto del offset para centrar el dígito (fuente 5x7 en una matriz 8x8) se ajusta probando.
+
+#### 6.4 Colores RGB565 útiles
+
+| Color | RGB565 | Se envía (low, high) |
+|---|---|---|
+| Rojo | `0xF800` | `00 F8` |
+| Verde | `0x07E0` | `E0 07` |
+| Azul | `0x001F` | `1F 00` |
+| Blanco | `0xFFFF` | `FF FF` |
+
+#### 6.5 Otro ejemplo: un solo pixel con `0x30`
+
+Encender en verde el pixel X = 3, Y = 2 de la pantalla 1.
+
+- `Coordinate_xy`: X = 3 en bit[5:3] (`011000`) + Y = 2 en bit[2:0] (`010`) = `0x1A`.
+- Color verde `0x07E0` se envía `E0 07`.
+- Num = 1.
+
+```
+AA 55 07 00 01 30 01 1A E0 07 33 55 AA
+```
+
+CRC: `0x01 + 0x30 + 0x01 + 0x1A + 0xE0 + 0x07 = 0x133`, byte bajo `0x33`.
+
+### 7. Códigos de estado
+
+| Valor | Nombre | Descripción |
+|---|---|---|
+| 0 | Failure | Operación fallida |
+| 1 | Success | Operación exitosa |
+
+Otros modos, rangos y valores de eventos se definen en las "Notas" de cada comando.
+
