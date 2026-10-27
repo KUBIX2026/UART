@@ -84,3 +84,16 @@ Es una pantalla de **8×8 LEDs RGB** (64 LEDs en total) que se controla enviánd
 | Rotación | 0°, 90°, 180°, 270° |
 
 La pantalla se puede **conectar en cadena** con otras pantallas Chain: la salida de una va a la entrada de la siguiente. Cada pantalla de la cadena tiene un número de identificación llamado **Index**, que se usa para decirle a cuál de ellas va dirigido cada comando.
+### Comunicación serial
+
+| Parámetro | Valor |
+|---|---|
+| Tipo | UART asíncrono |
+| Velocidad | **115200 bps** |
+| Bits de datos | 8 |
+| Bit de parada | 1 |
+| Paridad | Ninguna |
+| Control de flujo | Ninguno |
+
+---
+
