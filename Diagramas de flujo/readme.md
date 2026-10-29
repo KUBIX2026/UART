@@ -12,3 +12,5 @@ https://app.diagrams.net/#G19qfT_Q6RILMO-Q5b0wqX86SVoXaOM9mz#%7B%22pageId%22%3A%
 https://app.diagrams.net/#G1gHrmP_RaB_9LmWl1FmsUWOWBrPjck9kX#%7B%22pageId%22%3A%22sy22FyMqmS826iZkHVbJ%22%7D
 
 ## 3. Diagrama de bloques
+
+<img width="800" height="300" alt="Diagramas uart drawio" src="https://github.com/user-attachments/assets/6b09d11b-e4ad-434a-8af0-473fdccda05b" />
