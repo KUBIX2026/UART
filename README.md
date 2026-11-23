@@ -1,4 +1,4 @@
-# UART: puntajes en la pantalla M5Stack
+# UART: puntajes en la pantalla M5Stack.
 
 Proyecto *Videojuego* (Electronica Digital 1). Equipo UART.
 ### Protocolo de comunicaciòn
