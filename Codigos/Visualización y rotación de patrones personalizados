@@ -1,0 +1,104 @@
+#include "M5Chain.h"
+#include "M5Unified.h"
+
+#define TXD_PIN GPIO_NUM_2
+#define RXD_PIN GPIO_NUM_1
+
+Chain M5Chain;
+
+uint8_t rgb_id           = 0;
+uint8_t operation_status = 0;
+
+// 8x8 green arrow pattern
+uint16_t arrow[64] = {
+    0x0000, 0x0000, 0x0000, 0x07E0, 0x07E0, 0x0000, 0x0000, 0x0000,  //    ■■   
+    0x0000, 0x0000, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x0000, 0x0000,  //   ■■■■  
+    0x0000, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x0000,  //  ■■■■■■ 
+    0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x07E0,  // ■■■■■■■■
+    0x0000, 0x0000, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x0000, 0x0000,  //   ■■■■  
+    0x0000, 0x0000, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x0000, 0x0000,  //   ■■■■  
+    0x0000, 0x0000, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x0000, 0x0000,  //   ■■■■  
+    0x0000, 0x0000, 0x07E0, 0x07E0, 0x07E0, 0x07E0, 0x0000, 0x0000   //   ■■■■  
+};
+
+bool findFirstRGBDevice()
+{
+    // Enumerate devices and use the first RGB node
+    uint16_t device_nums = 0;
+    if (M5Chain.getDeviceNum(&device_nums) != CHAIN_OK || device_nums == 0) {
+        Serial.println("No Chain devices found");
+        return false;
+    }
+
+    device_info_t *infos = (device_info_t *)malloc(sizeof(device_info_t) * device_nums);
+    if (infos == nullptr) {
+        return false;
+    }
+
+    device_list_t devices;
+    devices.count   = device_nums;
+    devices.devices = infos;
+
+    bool found = false;
+    if (M5Chain.getDeviceList(&devices)) {
+        for (uint8_t i = 0; i < devices.count; i++) {
+            if (devices.devices[i].device_type == CHAIN_RGB_TYPE_CODE) {
+                rgb_id = devices.devices[i].id;
+                found  = true;
+                break;
+            }
+        }
+    }
+
+    free(infos);
+    if (found) {
+        Serial.printf("RGB device found, id=%d\r\n", rgb_id);
+    } else {
+        Serial.println("No RGB device found");
+    }
+    return found;
+}
+
+bool prepareRGB()
+{
+    // Initialize pixel mode and brightness
+    if (!findFirstRGBDevice()) {
+        return false;
+    }
+
+    if (M5Chain.setRGBMode(rgb_id, RGB_PIXEL_MODE, &operation_status) != CHAIN_OK || operation_status != 1) {
+        return false;
+    }
+
+    M5Chain.setRGBBrightness(rgb_id, 50, &operation_status);
+    M5Chain.setRGBClear(rgb_id, &operation_status);
+    return true;
+}
+
+void setup()
+{
+    M5.begin();
+    Serial.begin(115200);
+    Serial.println("RGB custom pattern rotation demo");
+    M5Chain.begin(&Serial2, 115200, RXD_PIN, TXD_PIN);
+
+    if (!prepareRGB()) {
+        Serial.println("Chain RGB init failed");
+        while (1) {
+            delay(100);
+        }
+    } else {
+        Serial.println("Chain RGB init success");
+    }
+}
+
+void loop()
+{
+    // Rotate through 0/90/180/270 degree display states
+    for (uint8_t rotation = RGB_ROTATION_0; rotation <= RGB_ROTATION_270; rotation++) {
+        M5Chain.setRGBRotation(rgb_id, (rgb_rotation_t)rotation, &operation_status);
+        M5Chain.setRGBBufferRefresh(rgb_id, arrow, &operation_status);
+        Serial.printf("Rotation set to: %d°\r\n", rotation * 90);
+        delay(800);
+    }
+} 
