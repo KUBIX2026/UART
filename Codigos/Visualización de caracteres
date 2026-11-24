@@ -1,0 +1,103 @@
+#include "M5Chain.h"
+#include "M5Unified.h"
+
+#define TXD_PIN GPIO_NUM_2
+#define RXD_PIN GPIO_NUM_1
+
+Chain M5Chain;
+
+uint8_t rgb_id           = 0;
+uint8_t operation_status = 0;
+const char text[]        = "I'mChainRGB";
+const uint16_t colors[]  = {0xFFE0, 0xF800, 0x07E0, 0x001F, 0xFD20, 0x07FF, 0xF81F};
+
+bool findFirstRGBDevice()
+{
+    // Enumerate devices and use the first RGB node
+    uint16_t device_nums = 0;
+    if (M5Chain.getDeviceNum(&device_nums) != CHAIN_OK || device_nums == 0) {
+        Serial.println("No Chain devices found");
+        return false;
+    }
+
+    device_info_t *infos = (device_info_t *)malloc(sizeof(device_info_t) * device_nums);
+    if (infos == nullptr) {
+        return false;
+    }
+
+    device_list_t devices;
+    devices.count   = device_nums;
+    devices.devices = infos;
+
+    bool found = false;
+    if (M5Chain.getDeviceList(&devices)) {
+        for (uint8_t i = 0; i < devices.count; i++) {
+            if (devices.devices[i].device_type == CHAIN_RGB_TYPE_CODE) {
+                rgb_id = devices.devices[i].id;
+                found  = true;
+                break;
+            }
+        }
+    }
+
+    free(infos);
+    if (found) {
+        Serial.printf("RGB device found, id=%d\r\n", rgb_id);
+    } else {
+        Serial.println("No RGB device found");
+    }
+    return found;
+}
+
+bool prepareRGB()
+{
+    // Initialize pixel mode, rotation, and brightness
+    if (!findFirstRGBDevice()) {
+        return false;
+    }
+
+    if (M5Chain.setRGBMode(rgb_id, RGB_PIXEL_MODE, &operation_status) != CHAIN_OK || operation_status != 1) {
+        return false;
+    }
+
+    M5Chain.setRGBRotation(rgb_id, RGB_ROTATION_0, &operation_status);
+    M5Chain.setRGBBrightness(rgb_id, 50, &operation_status);
+    M5Chain.setRGBClear(rgb_id, &operation_status);
+    return true;
+}
+
+void setup()
+{
+    M5.begin();
+    Serial.begin(115200);
+    Serial.println("RGB character demo");
+    M5Chain.begin(&Serial2, 115200, RXD_PIN, TXD_PIN);
+
+    if (!prepareRGB()) {
+        Serial.println("Chain RGB init failed");
+        while (1) {
+            delay(100);
+        }
+    } else {
+        Serial.println("Chain RGB init success");
+    }
+}
+
+void loop()
+{
+    static uint8_t index = 0;
+    char c               = text[index];
+    uint16_t color       = colors[index % (sizeof(colors) / sizeof(colors[0]))];
+
+    // Show characters one by one with changing colors
+    M5Chain.setRGBClear(rgb_id, &operation_status);
+    M5Chain.setRGBPrintChar(rgb_id, c, 1, 1, color, &operation_status);
+    Serial.printf("Character shown: %c, color=0x%04X\r\n", c, color);
+
+    delay(400);
+
+    index++;
+    if (index >= sizeof(text) - 1) {
+        index = 0;
+    }
+} 
