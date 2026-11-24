@@ -1,0 +1,154 @@
+#include "M5Chain.h"
+#include "M5Unified.h"
+
+#define TXD_PIN GPIO_NUM_2
+#define RXD_PIN GPIO_NUM_1
+
+Chain M5Chain;
+
+chain_status_t chain_status = CHAIN_OK;
+uint8_t rgb_id           = 0;
+uint8_t operation_status = 0;
+
+const uint16_t colors[] = {
+    0xF800,  // Red
+    0x07E0,  // Green
+    0x001F,  // Blue
+    0xFFE0,  // Yellow
+    0xF81F,  // Magenta
+    0x07FF   // Cyan
+};
+
+bool findFirstRGBDevice()
+{
+    // Enumerate devices and use the first RGB node
+    uint16_t device_nums = 0;
+    if (M5Chain.getDeviceNum(&device_nums) != CHAIN_OK || device_nums == 0) {
+        Serial.println("No Chain devices found");
+        return false;
+    }
+
+    device_info_t *infos = (device_info_t *)malloc(sizeof(device_info_t) * device_nums);
+    if (infos == nullptr) {
+        return false;
+    }
+
+    device_list_t devices;
+    devices.count   = device_nums;
+    devices.devices = infos;
+
+    bool found = false;
+    if (M5Chain.getDeviceList(&devices)) {
+        for (uint8_t i = 0; i < devices.count; i++) {
+            if (devices.devices[i].device_type == CHAIN_RGB_TYPE_CODE) {
+                rgb_id = devices.devices[i].id;
+                found  = true;
+                break;
+            }
+        }
+    }
+
+    free(infos);
+    if (found) {
+        Serial.printf("RGB device found, id=%d\r\n", rgb_id);
+    } else {
+        Serial.println("No RGB device found");
+    }
+    return found;
+}
+
+bool prepareRGB()
+{
+    // Initialize pixel mode, rotation, and brightness
+    if (!findFirstRGBDevice()) {
+        return false;
+    }
+
+    if (M5Chain.setRGBMode(rgb_id, RGB_PIXEL_MODE, &operation_status) != CHAIN_OK || operation_status != 1) {
+        return false;
+    }
+
+    M5Chain.setRGBRotation(rgb_id, RGB_ROTATION_0, &operation_status);
+    M5Chain.setRGBBrightness(rgb_id, 50, &operation_status);
+    M5Chain.setRGBClear(rgb_id, &operation_status);
+    return true;
+}
+
+void setup()
+{
+    M5.begin();
+    Serial.begin(115200);
+    Serial.println("RGB pixel demo");
+    M5Chain.begin(&Serial2, 115200, RXD_PIN, TXD_PIN);
+
+    if (!prepareRGB()) {
+        Serial.println("Chain RGB init failed");
+        while (1) {
+            delay(100);
+        }
+    } else {
+        Serial.println("Chain RGB init success");
+    }
+}
+
+void loop()
+{
+    static bool single_phase = true;
+    static uint8_t single_x  = 0;
+    static uint8_t single_y  = 0;
+    static uint8_t block_x   = 0;
+    static uint8_t block_y   = 4;
+    static uint8_t color_i   = 0;
+
+    if (single_phase) {
+        // Walk through the first 4 rows with one RGB pixel
+        M5Chain.setRGBClear(rgb_id, &operation_status);
+        chain_status = M5Chain.setRGBPixel(rgb_id, single_x, single_y, colors[color_i], &operation_status);
+        if (chain_status == CHAIN_OK && operation_status == 1) {
+            Serial.printf("Single pixel: x=%d, y=%d, color=0x%04X\r\n", single_x, single_y, colors[color_i]);
+        }
+
+        delay(160);
+
+        single_x++;
+        color_i = (color_i + 1) % (sizeof(colors) / sizeof(colors[0]));
+        if (single_x >= 8) {
+            single_x = 0;
+            single_y++;
+        }
+
+        if (single_y >= 4) {
+            single_phase = false;
+            block_x      = 0;
+            block_y      = 4;
+        }
+    } else {
+        // Walk through the last 4 rows with a 2x2 RGB block
+        RGBPixelInfo pixels[] = {
+            {block_x, block_y, colors[color_i]},
+            {(uint8_t)(block_x + 1), block_y, colors[(color_i + 1) % 6]},
+            {block_x, (uint8_t)(block_y + 1), colors[(color_i + 2) % 6]},
+            {(uint8_t)(block_x + 1), (uint8_t)(block_y + 1), colors[(color_i + 3) % 6]}};
+
+        M5Chain.setRGBClear(rgb_id, &operation_status);
+        chain_status = M5Chain.setRGBPixel(rgb_id, pixels, sizeof(pixels) / sizeof(pixels[0]), &operation_status);
+        if (chain_status == CHAIN_OK && operation_status == 1) {
+            Serial.printf("RGB block: x=%d, y=%d\r\n", block_x, block_y);
+        }
+
+        delay(160);
+
+        block_x++;
+        color_i = (color_i + 1) % (sizeof(colors) / sizeof(colors[0]));
+        if (block_x >= 7) {
+            block_x = 0;
+            block_y += 2;
+        }
+
+        if (block_y >= 8) {
+            single_phase = true;
+            single_x     = 0;
+            single_y     = 0;
+        }
+    }
+} 
